@@ -1,284 +1,471 @@
-import pygame  # Importation de la bibliothèque Pygame pour créer le jeu
-import sys     # Importation du module sys pour gérer la fermeture du programme
-import random  # Importation du module random pour générer des éléments aléatoires
+import pygame
+import sys
+import random
+import math
 
 # Initialisation de Pygame
-pygame.init()  # Initialise tous les modules Pygame nécessaires
+pygame.init()
+pygame.mixer.init()  # Initialisation du module audio
 
 # Configuration de la fenêtre
-WIDTH, HEIGHT = 800, 600  # Définition de la largeur et hauteur de la fenêtre
-screen = pygame.display.set_mode((WIDTH, HEIGHT))  # Création de la fenêtre de jeu
-pygame.display.set_caption("Mario-like Platformer")  # Définition du titre de la fenêtre
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Super Mario en action")
 
-# Couleurs - Définition des couleurs utilisées dans le jeu en format RGB
-SKY_BLUE = (107, 140, 255)  # Bleu ciel pour l'arrière-plan
-BROWN = (139, 69, 19)       # Marron pour les détails des plateformes
-GREEN = (76, 175, 80)       # Vert pour les plateformes
-RED = (255, 0, 0)           # Rouge pour le joueur
-YELLOW = (255, 255, 0)      # Jaune pour les pièces
-WHITE = (255, 255, 255)     # Blanc pour le texte et les yeux
-BLACK = (0, 0, 0)           # Noir pour les contours
-ORANGE = (255, 165, 0)      # Orange pour les ennemis
+big_font = pygame.font.SysFont(None, 72)
 
-# Joueur - Définition de la classe représentant le personnage principal
+# Chargement des polices personnalisées
+try:
+    title_font = pygame.font.Font("freesansbold.ttf", 60)
+    subtitle_font = pygame.font.Font("freesansbold.ttf", 30)
+    menu_font = pygame.font.Font("freesansbold.ttf", 36)
+    game_font = pygame.font.Font("freesansbold.ttf", 24)
+    small_font = pygame.font.Font("freesansbold.ttf", 18)
+except:
+    # Fallback aux polices système si les polices personnalisées ne sont pas disponibles
+    title_font = pygame.font.SysFont("Arial", 60, bold=True)
+    subtitle_font = pygame.font.SysFont("Arial", 30, bold=True)
+    menu_font = pygame.font.SysFont("Arial", 36, bold=True)
+    game_font = pygame.font.SysFont("Arial", 24)
+    small_font = pygame.font.SysFont("Arial", 18)
+
+# Couleurs
+SKY_BLUE = (107, 140, 255)
+BROWN = (139, 69, 19)
+GREEN = (76, 175, 80)
+RED = (255, 0, 0)
+YELLOW = (255, 255, 0)
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+ORANGE = (255, 165, 0)
+BLUE = (0, 120, 255)
+DARK_GREEN = (0, 100, 0)
+LIGHT_BLUE = (135, 206, 250)
+GRAY = (128, 128, 128)
+GOLD = (255, 215, 0)
+MARIO_RED = (220, 0, 0)
+MARIO_BLUE = (30, 144, 255)
+
+# Effets sonores (placeholders - vous pouvez ajouter vos propres fichiers sonores)
+try:
+    jump_sound = pygame.mixer.Sound("jump.wav")
+    coin_sound = pygame.mixer.Sound("coin.wav")
+    game_over_sound = pygame.mixer.Sound("game_over.wav")
+    victory_sound = pygame.mixer.Sound("victory.wav")
+except:
+    # Création de sons de secours si les fichiers ne sont pas disponibles
+    jump_sound = pygame.mixer.Sound(buffer=bytearray([0]*44))
+    coin_sound = pygame.mixer.Sound(buffer=bytearray([0]*44))
+    game_over_sound = pygame.mixer.Sound(buffer=bytearray([0]*44))
+    victory_sound = pygame.mixer.Sound(buffer=bytearray([0]*44))
+
+# Joueur avec effet 3D
 class Player:
-    def __init__(self):  # Constructeur de la classe Player
-        self.width = 40          # Largeur du joueur
-        self.height = 60         # Hauteur du joueur
-        self.x = 100             # Position horizontale initiale
-        self.y = HEIGHT - 150    # Position verticale initiale
-        self.vel_y = 0           # Vitesse verticale (pour le saut et la chute)
-        self.jump_power = -15    # Puissance du saut (négatif car vers le haut)
-        self.gravity = 0.8       # Force de gravité appliquée au joueur
-        self.is_jumping = False  # État indiquant si le joueur saute
-        self.speed = 5           # Vitesse de déplacement horizontal
-        self.facing_right = True # Direction vers laquelle le joueur regarde
-        self.score = 0           # Score actuel du joueur
-        self.coins_collected = 0 # Nombre de pièces collectées
-        self.lives = 3           # Nombre de vies restantes
-        self.invincible = False  # État d'invincibilité temporaire
-        self.invincible_timer = 0 # Compteur pour l'invincibilité
+    def __init__(self):
+        self.width = 40
+        self.height = 60
+        self.depth = 20
+        self.x = 100
+        self.y = HEIGHT - 150
+        self.z = 0
+        self.vel_y = 0
+        self.vel_z = 0
+        self.jump_power = -15
+        self.gravity = 0.8
+        self.is_jumping = False
+        self.speed = 5
+        self.facing_right = True
+        self.score = 0
+        self.coins_collected = 0
+        self.lives = 3
+        self.invincible = False
+        self.invincible_timer = 0
+        self.animation_frame = 0
+        self.animation_speed = 0.2
+        self.has_hat = True
 
-    def draw(self):  # Méthode pour dessiner le joueur à l'écran
-        # Dessiner le corps de Mario
+    def draw(self):
         if self.invincible and pygame.time.get_ticks() % 200 < 100:
-            # Clignotement pendant l'invincibilité (tous les 200ms)
-            return  # Ne pas dessiner pendant les phases de clignotement
+            return
         
-        pygame.draw.rect(screen, RED, (self.x, self.y, self.width, self.height))  # Corps principal
+        # Dessiner l'ombre en 3D
+        shadow_points = [
+            (self.x + self.depth/2, self.y + self.height),
+            (self.x + self.width - self.depth/2, self.y + self.height),
+            (self.x + self.width + self.depth/2, self.y + self.height - self.depth),
+            (self.x + self.depth/2, self.y + self.height - self.depth)
+        ]
+        pygame.draw.polygon(screen, (0, 0, 0, 128), shadow_points)
         
-        # Dessiner la casquette
-        pygame.draw.rect(screen, RED, (self.x - 5, self.y, self.width + 10, 15))  # Casquette de Mario
+        # Corps principal avec effet 3D
+        pygame.draw.rect(screen, MARIO_RED, (self.x, self.y, self.width, self.height))
         
-        # Dessiner les yeux (simplifiés)
-        eye_x = self.x + 25 if self.facing_right else self.x + 5  # Position de l'oeil selon la direction
-        pygame.draw.circle(screen, WHITE, (eye_x, self.y + 20), 5)  # Oeil du personnage
+        # Côté droit pour l'effet 3D
+        right_side = [
+            (self.x + self.width, self.y),
+            (self.x + self.width + self.depth/2, self.y - self.depth/2),
+            (self.x + self.width + self.depth/2, self.y + self.height - self.depth/2),
+            (self.x + self.width, self.y + self.height)
+        ]
+        pygame.draw.polygon(screen, (180, 0, 0), right_side)
+        
+        # Dessiner la casquette si le joueur en a une
+        if self.has_hat:
+            pygame.draw.rect(screen, MARIO_RED, (self.x - 5, self.y, self.width + 10, 15))
+            cap_side = [
+                (self.x + self.width + 5, self.y),
+                (self.x + self.width + self.depth/2 + 5, self.y - self.depth/2),
+                (self.x + self.width + self.depth/2 + 5, self.y + 15 - self.depth/2),
+                (self.x + self.width + 5, self.y + 15)
+            ]
+            pygame.draw.polygon(screen, (180, 0, 0), cap_side)
+        
+        # Animation des jambes
+        leg_offset = math.sin(self.animation_frame) * 5 if pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_RIGHT] else 0
+        
+        # Dessiner les jambes
+        pygame.draw.rect(screen, MARIO_BLUE, (self.x + 5, self.y + 40, 10, 20 + leg_offset))
+        pygame.draw.rect(screen, MARIO_BLUE, (self.x + 25, self.y + 40, 10, 20 - leg_offset))
+        
+        # Dessiner les yeux
+        eye_x = self.x + 25 if self.facing_right else self.x + 5
+        pygame.draw.circle(screen, WHITE, (eye_x, self.y + 20), 5)
+        pygame.draw.circle(screen, BLACK, (eye_x, self.y + 20), 2)
 
-    def update(self, platforms, coins, doors, enemies, current_level):  # Mise à jour de l'état du joueur
+    def update(self, platforms, coins, doors, enemies, current_level):
+        # Mettre à jour l'animation
+        if pygame.key.get_pressed()[pygame.K_LEFT] or pygame.key.get_pressed()[pygame.K_RIGHT]:
+            self.animation_frame += self.animation_speed
+        
         # Appliquer la gravité
-        self.vel_y += self.gravity  # Augmente la vitesse verticale avec la gravité
-        self.y += self.vel_y       # Met à jour la position verticale
+        self.vel_y += self.gravity
+        self.y += self.vel_y
 
         # Gérer l'invincibilité temporaire
-        if self.invincible:        # Si le joueur est invincible
-            self.invincible_timer -= 1  # Décrémente le compteur
-            if self.invincible_timer <= 0:  # Si le compteur arrive à zéro
-                self.invincible = False    # Fin de l'invincibilité
+        if self.invincible:
+            self.invincible_timer -= 1
+            if self.invincible_timer <= 0:
+                self.invincible = False
 
         # Collision avec le sol
-        if self.y > HEIGHT - self.height:  # Si le joueur touche le bas de l'écran
-            self.y = HEIGHT - self.height  # Replace le joueur sur le sol
-            self.vel_y = 0                 # Annule la vitesse verticale
-            self.is_jumping = False        # Le joueur n'est plus en train de sauter
+        if self.y > HEIGHT - self.height:
+            self.y = HEIGHT - self.height
+            self.vel_y = 0
+            self.is_jumping = False
 
         # Collision avec les plateformes
-        for platform in platforms:  # Pour chaque plateforme
-            if (self.y + self.height >= platform.y and  # Si le bas du joueur est au niveau du haut de la plateforme
-                self.y + self.height <= platform.y + 20 and  # Et dans la marge de collision
-                self.x + self.width > platform.x and  # Et que le joueur chevauche horizontalement
-                self.x < platform.x + platform.width and  # La plateforme
-                self.vel_y > 0):  # Et que le joueur descend
-                self.y = platform.y - self.height  # Place le joueur sur la plateforme
-                self.vel_y = 0                    # Annule la vitesse verticale
-                self.is_jumping = False           # Le joueur n'est plus en train de sauter
+        for platform in platforms:
+            if (self.y + self.height >= platform.y and
+                self.y + self.height <= platform.y + 20 and
+                self.x + self.width > platform.x and
+                self.x < platform.x + platform.width and
+                self.vel_y > 0):
+                self.y = platform.y - self.height
+                self.vel_y = 0
+                self.is_jumping = False
 
         # Collecter les pièces
-        for coin in coins[:]:  # Pour chaque pièce (copie de la liste pour modification)
-            if (self.x + self.width > coin.x and  # Si le joueur chevauche horizontalement
-                self.x < coin.x + coin.size and   # La pièce
-                self.y + self.height > coin.y and # Et verticalement
-                self.y < coin.y + coin.size):     # La pièce
-                coins.remove(coin)               # Supprime la pièce de la liste
-                self.score += 100                # Ajoute 100 points au score
-                self.coins_collected += 1        # Incrémente le compteur de pièces
+        for coin in coins[:]:
+            if (self.x + self.width > coin.x and
+                self.x < coin.x + coin.size and
+                self.y + self.height > coin.y and
+                self.y < coin.y + coin.size):
+                coins.remove(coin)
+                self.score += 100
+                self.coins_collected += 1
+                try:
+                    coin_sound.play()
+                except:
+                    pass
 
         # Collision avec les ennemis
-        for enemy in enemies[:]:  # Pour chaque ennemi (copie de la liste pour modification)
-            if (self.x + self.width > enemy.x and  # Si le joueur chevauche horizontalement
-                self.x < enemy.x + enemy.width and # L'ennemi
-                self.y + self.height > enemy.y and # Et verticalement
-                self.y < enemy.y + enemy.height):  # L'ennemi
-                if self.vel_y > 0 and self.y + self.height < enemy.y + enemy.height/2:  # Si le joueur tombe sur l'ennemi
-                    # Écraser l'ennemi
-                    enemies.remove(enemy)          # Supprime l'ennemi
-                    self.vel_y = self.jump_power/2 # Donne un petit rebond au joueur
-                    self.score += 200              # Ajoute 200 points au score
-                elif not self.invincible:          # Si le joueur n'est pas invincible
-                    # Perdre une vie
-                    self.lives -= 1                # Enlève une vie
-                    self.invincible = True         # Active l'invincibilité temporaire
-                    self.invincible_timer = 60     # 1 seconde d'invincibilité à 60 FPS
-                    if self.lives <= 0:            # Si plus de vies
-                        return "game_over"         # Retourne l'état "game over"
+        for enemy in enemies[:]:
+            if (self.x + self.width > enemy.x and
+                self.x < enemy.x + enemy.width and
+                self.y + self.height > enemy.y and
+                self.y < enemy.y + enemy.height):
+                if self.vel_y > 0 and self.y + self.height < enemy.y + enemy.height/2:
+                    enemies.remove(enemy)
+                    self.vel_y = self.jump_power/2
+                    self.score += 200
+                elif not self.invincible:
+                    self.lives -= 1
+                    self.invincible = True
+                    self.invincible_timer = 60
+                    if self.lives <= 0:
+                        try:
+                            game_over_sound.play()
+                        except:
+                            pass
+                        return "game_over"
         
         # Vérifier si le joueur tombe hors de l'écran
-        if self.y > HEIGHT:        # Si le joueur est tombé complètement hors de l'écran
-            self.lives -= 1        # Enlève une vie
-            self.x = 100           # Réinitialise la position horizontale
-            self.y = HEIGHT - 150  # Réinitialise la position verticale
-            self.vel_y = 0         # Réinitialise la vitesse verticale
-            if self.lives <= 0:    # Si plus de vies
-                return "game_over" # Retourne l'état "game over"
-            self.invincible = True         # Active l'invincibilité temporaire
-            self.invincible_timer = 120    # 2 secondes d'invincibilité à 60 FPS
+        if self.y > HEIGHT:
+            self.lives -= 1
+            self.x = 100
+            self.y = HEIGHT - 150
+            self.vel_y = 0
+            if self.lives <= 0:
+                try:
+                    game_over_sound.play()
+                except:
+                    pass
+                return "game_over"
+            self.invincible = True
+            self.invincible_timer = 120
 
         # Vérifier si le joueur atteint la porte pour changer de niveau
-        for door in doors:  # Pour chaque porte
-            if (self.x + self.width > door.x and  # Si le joueur chevauche horizontalement
-                self.x < door.x + door.width and  # La porte
-                self.y + self.height > door.y and # Et verticalement
-                self.y < door.y + door.height):   # La porte
-                if self.coins_collected >= door.coins_required:  # Si assez de pièces collectées
-                    return door.next_level  # Retourne le prochain niveau
+        for door in doors:
+            if (self.x + self.width > door.x and
+                self.x < door.x + door.width and
+                self.y + self.height > door.y and
+                self.y < door.y + door.height):
+                if self.coins_collected >= door.coins_required:
+                    try:
+                        victory_sound.play()
+                    except:
+                        pass
+                    return door.next_level
         
-        return current_level  # Retourne le niveau actuel si aucun changement
+        return current_level
 
-    def jump(self):  # Méthode pour faire sauter le joueur
-        if not self.is_jumping:  # Si le joueur n'est pas déjà en train de sauter
-            self.vel_y = self.jump_power  # Applique la force de saut
-            self.is_jumping = True        # Met à jour l'état de saut
+    def jump(self):
+        if not self.is_jumping:
+            self.vel_y = self.jump_power
+            self.is_jumping = True
+            try:
+                jump_sound.play()
+            except:
+                pass
 
-# Plateforme - Définition de la classe représentant les plateformes
+# Plateforme avec effet 3D
 class Platform:
-    def __init__(self, x, y, width):  # Constructeur de la classe Platform
-        self.x = x      # Position horizontale
-        self.y = y      # Position verticale
-        self.width = width  # Largeur de la plateforme
-        self.height = 20    # Hauteur de la plateforme
+    def __init__(self, x, y, width, is_breakable=False):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = 20
+        self.depth = 10
+        self.is_breakable = is_breakable
+        self.color = GREEN if not is_breakable else BROWN
 
-    def draw(self):  # Méthode pour dessiner la plateforme
-        pygame.draw.rect(screen, GREEN, (self.x, self.y, self.width, self.height))  # Rectangle vert principal
+    def draw(self):
+        # Dessiner le dessus de la plateforme
+        pygame.draw.rect(screen, self.color, (self.x, self.y, self.width, self.height))
+        
+        # Dessiner l'avant de la plateforme (effet 3D)
+        front_face = [
+            (self.x, self.y + self.height),
+            (self.x + self.depth, self.y + self.height - self.depth/2),
+            (self.x + self.width + self.depth, self.y + self.height - self.depth/2),
+            (self.x + self.width, self.y + self.height)
+        ]
+        pygame.draw.polygon(screen, DARK_GREEN if not self.is_breakable else (100, 50, 0), front_face)
+        
+        # Dessiner le côté droit (effet 3D)
+        right_side = [
+            (self.x + self.width, self.y),
+            (self.x + self.width + self.depth, self.y - self.depth/2),
+            (self.x + self.width + self.depth, self.y + self.height - self.depth/2),
+            (self.x + self.width, self.y + self.height)
+        ]
+        pygame.draw.polygon(screen, DARK_GREEN if not self.is_breakable else (100, 50, 0), right_side)
+        
         # Ajouter des détails aux briques
-        for i in range(0, self.width, 15):  # Lignes verticales tous les 15 pixels
-            pygame.draw.line(screen, BROWN, (self.x + i, self.y), (self.x + i, self.y + self.height), 1)
-        for i in range(0, self.height, 15):  # Lignes horizontales tous les 15 pixels
-            pygame.draw.line(screen, BROWN, (self.x, self.y + i), (self.x + self.width, self.y + i), 1)
+        if not self.is_breakable:
+            for i in range(0, self.width, 15):
+                pygame.draw.line(screen, BROWN, (self.x + i, self.y), (self.x + i, self.y + self.height), 1)
+            for i in range(0, self.height, 15):
+                pygame.draw.line(screen, BROWN, (self.x, self.y + i), (self.x + self.width, self.y + i), 1)
+        else:
+            # Détails pour les briques cassables
+            for i in range(0, self.width, 10):
+                pygame.draw.line(screen, (100, 50, 0), (self.x + i, self.y), (self.x + i, self.y + self.height), 1)
+            for i in range(0, self.height, 10):
+                pygame.draw.line(screen, (100, 50, 0), (self.x, self.y + i), (self.x + self.width, self.y + i), 1)
 
-# Pièce - Définition de la classe représentant les pièces à collecter
+# Pièce avec effet 3D et animation
 class Coin:
-    def __init__(self, x, y):  # Constructeur de la classe Coin
-        self.x = x          # Position horizontale
-        self.y = y          # Position verticale
-        self.size = 15      # Taille de la pièce
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.size = 15
+        self.animation_frame = 0
+        self.animation_speed = 0.1
+        self.collected = False
 
-    def draw(self):  # Méthode pour dessiner la pièce
-        pygame.draw.circle(screen, YELLOW, (self.x + self.size//2, self.y + self.size//2), self.size//2)  # Cercle jaune
-        pygame.draw.circle(screen, BLACK, (self.x + self.size//2, self.y + self.size//2), self.size//2, 1)  # Contour noir
+    def draw(self):
+        if self.collected:
+            return
+            
+        self.animation_frame += self.animation_speed
+        bounce = math.sin(self.animation_frame) * 5
+        
+        # Dessiner l'effet 3D de la pièce
+        pygame.draw.circle(screen, YELLOW, (self.x + self.size//2, self.y + self.size//2 - bounce), self.size//2)
+        pygame.draw.circle(screen, GOLD, (self.x + self.size//2 + 2, self.y + self.size//2 - bounce - 2), self.size//2 - 2)
+        pygame.draw.circle(screen, BLACK, (self.x + self.size//2, self.y + self.size//2 - bounce), self.size//2, 1)
+        
+        # Dessiner le reflet
+        pygame.draw.circle(screen, (255, 255, 200), (self.x + self.size//2 + 3, self.y + self.size//2 - bounce - 3), 3)
 
-# Porte pour changer de niveau - Définition de la classe représentant les portes
+# Porte avec effet 3D
 class Door:
-    def __init__(self, x, y, next_level, coins_required):  # Constructeur de la classe Door
-        self.x = x                  # Position horizontale
-        self.y = y                  # Position verticale
-        self.width = 40             # Largeur de la porte
-        self.height = 60            # Hauteur de la porte
-        self.next_level = next_level  # Niveau suivant accessible par cette porte
-        self.coins_required = coins_required  # Pièces nécessaires pour utiliser la porte
+    def __init__(self, x, y, next_level, coins_required):
+        self.x = x
+        self.y = y
+        self.width = 40
+        self.height = 60
+        self.depth = 10
+        self.next_level = next_level
+        self.coins_required = coins_required
+        self.animation_frame = 0
 
-    def draw(self):  # Méthode pour dessiner la porte
-        pygame.draw.rect(screen, BROWN, (self.x, self.y, self.width, self.height))  # Rectangle marron principal
-        pygame.draw.rect(screen, BLACK, (self.x, self.y, self.width, self.height), 2)  # Contour noir
+    def draw(self):
+        self.animation_frame += 0.05
+        glow = math.sin(self.animation_frame) * 5
         
-        # Afficher le nombre de pièces requises
-        font = pygame.font.SysFont(None, 20)  # Police de taille 20
-        text = font.render(str(self.coins_required), True, WHITE)  # Texte blanc avec le nombre de pièces
-        screen.blit(text, (self.x + self.width//2 - text.get_width()//2, self.y + self.height//2 - text.get_height()//2))  # Centrer le texte
+        # Dessiner la face avant
+        pygame.draw.rect(screen, BROWN, (self.x, self.y, self.width, self.height))
+        pygame.draw.rect(screen, (50, 25, 0), (self.x, self.y, self.width, self.height), 2)
+        
+        # Dessiner le côté (effet 3D)
+        side_points = [
+            (self.x + self.width, self.y),
+            (self.x + self.width + self.depth, self.y - self.depth/2),
+            (self.x + self.width + self.depth, self.y + self.height - self.depth/2),
+            (self.x + self.width, self.y + self.height)
+        ]
+        pygame.draw.polygon(screen, (100, 50, 0), side_points)
+        
+        # Poignée de porte
+        pygame.draw.circle(screen, YELLOW, (self.x + 30, self.y + self.height//2), 5)
+        
+        # Afficher le nombre de pièces requises avec effet de lueur
+        text_color = (255, 255, 255) if glow < 0 else (255, 255, 0)
+        text = game_font.render(str(self.coins_required), True, text_color)
+        screen.blit(text, (self.x + self.width//2 - text.get_width()//2, self.y + self.height//2 - text.get_height()//2))
 
-# Ennemi - Définition de la classe représentant les ennemis
+# Ennemi avec effet 3D
 class Enemy:
-    def __init__(self, x, y, min_x, max_x, level):  # Constructeur de la classe Enemy
-        self.x = x          # Position horizontale initiale
-        self.y = y          # Position verticale
-        self.width = 30     # Largeur de l'ennemi
-        self.height = 30    # Hauteur de l'ennemi
-        # La vitesse augmente avec le niveau
-        self.speed = 0 + (level * 0.5)  # Niveau 1: 0.5, Niveau 2: 1, Niveau 3: 1.5
-        self.min_x = min_x  # Limite gauche de déplacement
-        self.max_x = max_x  # Limite droite de déplacement
-        self.direction = 1  # 1 pour droite, -1 pour gauche
+    def __init__(self, x, y, min_x, max_x, level):
+        self.x = x
+        self.y = y
+        self.width = 30
+        self.height = 30
+        self.depth = 10
+        self.speed = 0 + (level * 0.5)
+        self.min_x = min_x
+        self.max_x = max_x
+        self.direction = 1
+        self.animation_frame = 0
+        self.type = random.choice(["goomba", "koopa"])
 
-    def draw(self):  # Méthode pour dessiner l'ennemi
-        pygame.draw.rect(screen, ORANGE, (self.x, self.y, self.width, self.height))  # Corps orange
-        # Dessiner les yeux
-        pygame.draw.circle(screen, WHITE, (self.x + 8, self.y + 10), 5)  # Oeil gauche
-        pygame.draw.circle(screen, WHITE, (self.x + 22, self.y + 10), 5)  # Oeil droit
-        pygame.draw.circle(screen, BLACK, (self.x + 8, self.y + 10), 2)  # Pupille gauche
-        pygame.draw.circle(screen, BLACK, (self.x + 22, self.y + 10), 2)  # Pupille droite
-
-    def update(self):  # Méthode pour mettre à jour la position de l'ennemi
-        self.x += self.speed * self.direction  # Déplace l'ennemi selon sa direction
+    def draw(self):
+        # Dessiner le corps principal
+        color = ORANGE if self.type == "goomba" else (0, 150, 0)
+        pygame.draw.rect(screen, color, (self.x, self.y, self.width, self.height))
         
-        # Changer de direction aux limites
-        if self.x <= self.min_x:              # Si l'ennemi atteint la limite gauche
-            self.direction = 1                # Change de direction vers la droite
-        elif self.x + self.width >= self.max_x:  # Si l'ennemi atteint la limite droite
-            self.direction = -1               # Change de direction vers la gauche
+        # Dessiner le côté (effet 3D)
+        side_points = [
+            (self.x + self.width, self.y),
+            (self.x + self.width + self.depth, self.y - self.depth/2),
+            (self.x + self.width + self.depth, self.y + self.height - self.depth/2),
+            (self.x + self.width, self.y + self.height)
+        ]
+        pygame.draw.polygon(screen, (200, 100, 0) if self.type == "goomba" else (0, 100, 0), side_points)
+        
+        # Dessiner les yeux avec animation
+        self.animation_frame += 0.05
+        eye_offset = math.sin(self.animation_frame) * 2
+        
+        if self.type == "goomba":
+            pygame.draw.circle(screen, WHITE, (self.x + 8, self.y + 10 + eye_offset), 5)
+            pygame.draw.circle(screen, WHITE, (self.x + 22, self.y + 10 - eye_offset), 5)
+            pygame.draw.circle(screen, BLACK, (self.x + 8, self.y + 10 + eye_offset), 2)
+            pygame.draw.circle(screen, BLACK, (self.x + 22, self.y + 10 - eye_offset), 2)
+        else:
+            # Koopa Troopa avec carapace
+            pygame.draw.ellipse(screen, (0, 100, 0), (self.x + 5, self.y + 5, 20, 20))
+            pygame.draw.circle(screen, WHITE, (self.x + 10, self.y + 12 + eye_offset), 3)
+            pygame.draw.circle(screen, WHITE, (self.x + 20, self.y + 12 - eye_offset), 3)
+            pygame.draw.circle(screen, BLACK, (self.x + 10, self.y + 12 + eye_offset), 1)
+            pygame.draw.circle(screen, BLACK, (self.x + 20, self.y + 12 - eye_offset), 1)
 
-# Définition des niveaux - Fonction pour charger les éléments de chaque niveau
+    def update(self):
+        self.x += self.speed * self.direction
+        
+        if self.x <= self.min_x:
+            self.direction = 1
+        elif self.x + self.width >= self.max_x:
+            self.direction = -1
+
+# Définition des niveaux
 def load_level(level_num):
-    platforms = []  # Liste des plateformes du niveau
-    coins = []      # Liste des pièces du niveau
-    doors = []      # Liste des portes du niveau
-    enemies = []    # Liste des ennemis du niveau
+    platforms = []
+    coins = []
+    doors = []
+    enemies = []
     
-    if level_num == 1:  # Configuration du niveau 1
-        # Niveau 1
+    if level_num == 1:
         platforms = [
-            Platform(0, HEIGHT - 40, WIDTH),  # Sol principal
-            Platform(200, 450, 200),          # Plateforme supplémentaire
-            Platform(500, 350, 150),          # Plateforme supplémentaire
-            Platform(300, 250, 100),          # Plateforme supplémentaire
-            Platform(600, 200, 200)           # Plateforme supplémentaire
+            Platform(0, HEIGHT - 40, WIDTH),
+            Platform(200, 450, 200),
+            Platform(500, 350, 150),
+            Platform(300, 250, 100),
+            Platform(600, 200, 200),
+            Platform(100, 350, 80, True)  # Plateforme cassable
         ]
         coins = [
-            Coin(250, 410),  # Pièce sur la première plateforme
-            Coin(550, 310),  # Pièce sur la deuxième plateforme
-            Coin(330, 210),  # Pièce sur la troisième plateforme
-            Coin(650, 160)   # Pièce sur la quatrième plateforme
+            Coin(250, 410),
+            Coin(550, 310),
+            Coin(330, 210),
+            Coin(650, 160),
+            Coin(130, 310)
         ]
         doors = [
-            Door(700, 140, 2, 3)  # Porte pour niveau 2, nécessite 3 pièces
+            Door(700, 140, 2, 3)
         ]
         enemies = [
-            Enemy(400, 430, 200, 400, level_num),  # Ennemi sur la première plateforme
-            Enemy(650, 330, 500, 650, level_num)   # Ennemi sur la deuxième plateforme
+            Enemy(400, 430, 200, 400, level_num),
+            Enemy(650, 330, 500, 650, level_num)
         ]
-    elif level_num == 2:  # Configuration du niveau 2 (plus difficile)
-        # Niveau 2 (plus difficile)
+    elif level_num == 2:
         platforms = [
-            Platform(0, HEIGHT - 40, WIDTH),  # Sol principal
-            Platform(100, 450, 100),          # Plateformes supplémentaires...
+            Platform(0, HEIGHT - 40, WIDTH),
+            Platform(100, 450, 100),
             Platform(300, 400, 100),
             Platform(500, 350, 100),
             Platform(200, 300, 100),
             Platform(400, 250, 100),
             Platform(600, 200, 100),
-            Platform(300, 150, 100)
+            Platform(300, 150, 100),
+            Platform(500, 100, 80, True)
         ]
         coins = [
-            Coin(130, 410),  # Pièces placées sur les plateformes...
+            Coin(130, 410),
             Coin(330, 360),
             Coin(530, 310),
             Coin(230, 260),
             Coin(430, 210),
             Coin(630, 160),
-            Coin(330, 110)
+            Coin(330, 110),
+            Coin(530, 60)
         ]
         doors = [
-            Door(700, 90, 3, 5)  # Porte pour niveau 3, nécessite 5 pièces
+            Door(700, 90, 3, 5)
         ]
         enemies = [
-            Enemy(150, 430, 100, 200, level_num),  # Ennemis placés sur les plateformes...
+            Enemy(150, 430, 100, 200, level_num),
             Enemy(350, 380, 300, 400, level_num),
             Enemy(550, 330, 500, 600, level_num),
             Enemy(250, 280, 200, 300, level_num),
             Enemy(650, 180, 600, 700, level_num)
         ]
-    elif level_num == 3:  # Configuration du niveau 3 (encore plus difficile)
-        # Niveau 3 (encore plus difficile)
+    elif level_num == 3:
         platforms = [
-            Platform(0, HEIGHT - 40, WIDTH),  # Sol principal
-            Platform(100, 450, 80),           # Plateformes en escalier...
+            Platform(0, HEIGHT - 40, WIDTH),
+            Platform(100, 450, 80),
             Platform(250, 400, 80),
             Platform(400, 350, 80),
             Platform(550, 300, 80),
@@ -286,10 +473,12 @@ def load_level(level_num):
             Platform(550, 200, 80),
             Platform(400, 150, 80),
             Platform(250, 100, 80),
-            Platform(100, 50, 80)
+            Platform(100, 50, 80),
+            Platform(400, 400, 80, True),
+            Platform(550, 250, 80, True)
         ]
         coins = [
-            Coin(130, 410),  # Pièces sur chaque plateforme...
+            Coin(130, 410),
             Coin(280, 360),
             Coin(430, 310),
             Coin(580, 260),
@@ -297,13 +486,15 @@ def load_level(level_num):
             Coin(580, 160),
             Coin(430, 110),
             Coin(280, 60),
-            Coin(130, 10)
+            Coin(130, 10),
+            Coin(430, 360),
+            Coin(580, 210)
         ]
         doors = [
-            Door(700, 10, 4, 7)  # Porte pour niveau final, nécessite 7 pièces
+            Door(700, 10, 4, 7)
         ]
         enemies = [
-            Enemy(150, 430, 100, 180, level_num),  # Ennemis sur plusieurs plateformes...
+            Enemy(150, 430, 100, 180, level_num),
             Enemy(300, 380, 250, 330, level_num),
             Enemy(450, 330, 400, 480, level_num),
             Enemy(600, 280, 550, 630, level_num),
@@ -311,158 +502,264 @@ def load_level(level_num):
             Enemy(450, 130, 400, 480, level_num),
             Enemy(300, 80, 250, 330, level_num)
         ]
-    elif level_num == 4:  # Configuration du niveau final (écran de victoire)
-        # Niveau final - victoire!
+    elif level_num == 4:
         platforms = [
-            Platform(0, HEIGHT - 40, WIDTH),  # Sol principal
-            Platform(300, 400, 200),          # Plateformes décoratives...
+            Platform(0, HEIGHT - 40, WIDTH),
+            Platform(300, 400, 200),
             Platform(350, 300, 100),
             Platform(400, 200, 200)
         ]
-        coins = []  # Aucune pièce dans le niveau final
+        coins = []
         doors = [
-            Door(450, 140, 1, 0)  # Porte pour recommencer le jeu
+            Door(450, 140, 1, 0)
         ]
-        enemies = []  # Aucun ennemi dans le niveau final
+        enemies = []
     
-    return platforms, coins, doors, enemies  # Retourne tous les éléments du niveau
+    return platforms, coins, doors, enemies
+
+# Écran d'accueil
+def show_menu():
+    menu_active = True
+    selected_option = 0
+    options = ["Jouer", "Quitter"]
+    
+    # Animation de l'écran titre
+    title_animation = 0
+    mario_x = -100
+    
+    while menu_active:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_DOWN:
+                    selected_option = (selected_option + 1) % len(options)
+                if event.key == pygame.K_UP:
+                    selected_option = (selected_option - 1) % len(options)
+                if event.key == pygame.K_RETURN:
+                    if selected_option == 0:
+                        return  # Commencer le jeu
+                    else:
+                        pygame.quit()
+                        sys.exit()
+        
+        # Mise à jour de l'animation
+        title_animation += 0.05
+        mario_x += 2
+        if mario_x > WIDTH + 100:
+            mario_x = -100
+        
+        # Dessin de l'écran d'accueil
+        screen.fill(SKY_BLUE)
+        
+        # Dessiner des nuages décoratifs
+        for i in range(5):
+            x = (pygame.time.get_ticks() // 30 + i * 200) % (WIDTH + 200) - 100
+            y = 100 + i * 40
+            size = 30 + i * 5
+            pygame.draw.circle(screen, WHITE, (x, y), size)
+            pygame.draw.circle(screen, WHITE, (x + size//2, y - size//3), size//1.5)
+            pygame.draw.circle(screen, WHITE, (x + size, y), size)
+        
+        # Dessiner le titre avec effet d'ombre
+        title_y = 100 + math.sin(title_animation) * 10
+        title_shadow = title_font.render("SUPER", True, (0, 0, 0))
+        title_text = title_font.render("SUPER", True, RED)
+        screen.blit(title_shadow, (WIDTH//2 - title_shadow.get_width()//2 + 3, title_y + 3))
+        screen.blit(title_text, (WIDTH//2 - title_text.get_width()//2, title_y))
+        
+        title_shadow = title_font.render("MARIO", True, (0, 0, 0))
+        title_text = title_font.render("MARIO", True, RED)
+        screen.blit(title_shadow, (WIDTH//2 - title_shadow.get_width()//2 + 3, title_y + 70 + 3))
+        screen.blit(title_text, (WIDTH//2 - title_text.get_width()//2, title_y + 70))
+        
+        subtitle_shadow = subtitle_font.render("EN ACTION", True, (0, 0, 0))
+        subtitle_text = subtitle_font.render("EN ACTION", True, (255, 215, 0))
+        screen.blit(subtitle_shadow, (WIDTH//2 - subtitle_shadow.get_width()//2 + 2, title_y + 140 + 2))
+        screen.blit(subtitle_text, (WIDTH//2 - subtitle_text.get_width()//2, title_y + 140))
+        
+        # Dessiner Mario qui court
+        pygame.draw.rect(screen, MARIO_RED, (mario_x, HEIGHT - 200, 40, 60))
+        pygame.draw.rect(screen, MARIO_BLUE, (mario_x + 5, HEIGHT - 200 + 40, 10, 20))
+        pygame.draw.rect(screen, MARIO_BLUE, (mario_x + 25, HEIGHT - 200 + 40, 10, 20))
+        
+        # Dessiner les options du menu
+        for i, option in enumerate(options):
+            color = YELLOW if i == selected_option else WHITE
+            option_shadow = menu_font.render(option, True, (0, 0, 0))
+            option_text = menu_font.render(option, True, color)
+            y_pos = HEIGHT - 150 + i * 60
+            screen.blit(option_shadow, (WIDTH//2 - option_shadow.get_width()//2 + 2, y_pos + 2))
+            screen.blit(option_text, (WIDTH//2 - option_text.get_width()//2, y_pos))
+        
+        # Instructions
+        instructions = small_font.render("Utilisez les flèches pour naviguer et Entrée pour selectionner", True, WHITE)
+        screen.blit(instructions, (WIDTH//2 - instructions.get_width()//2, HEIGHT - 30))
+        
+        pygame.display.flip()
+        clock.tick(60)
 
 # Initialisation du jeu
-player = Player()  # Crée une instance du joueur
-current_level = 1  # Niveau actuel (commence au niveau 1)
-platforms, coins, doors, enemies = load_level(current_level)  # Charge les éléments du niveau 1
-game_state = "playing"  # État initial du jeu: "playing", "game_over", "victory"
+player = Player()
+current_level = 1
+platforms, coins, doors, enemies = load_level(current_level)
+game_state = "menu"
 
-# Nuages décoratifs - Positions fixes pour les nuages en arrière-plan
-clouds = [(100, 100), (400, 150), (700, 80)]
+# Arrière-plan avec effet de profondeur
+background = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+for i in range(100):
+    x = random.randint(0, WIDTH)
+    y = random.randint(0, HEIGHT//2)
+    size = random.randint(1, 3)
+    alpha = random.randint(100, 200)
+    pygame.draw.circle(background, (255, 255, 255, alpha), (x, y), size)
 
-# Police pour le texte
-font = pygame.font.SysFont(None, 36)      # Police de taille 36 pour le texte standard
-big_font = pygame.font.SysFont(None, 72)  # Police de taille 72 pour les grands textes
+# Nuages avec différentes couches pour l'effet de profondeur
+clouds = [
+    (100, 100, 1),
+    (400, 150, 2),
+    (700, 80, 1),
+    (200, 50, 3),
+    (600, 120, 2),
+    (300, 200, 1),
+    (500, 80, 2)
+]
 
-# Game loop - Boucle principale du jeu
-clock = pygame.time.Clock()  # Crée un objet horloge pour contrôler le framerate
-running = True               # Variable pour contrôler la boucle principale
+# Game loop
+clock = pygame.time.Clock()
+running = True
 
-while running:  # Boucle principale du jeu
-    for event in pygame.event.get():  # Traitement des événements
-        if event.type == pygame.QUIT:  # Si l'utilisateur clique sur la croix de fermeture
-            running = False           # Arrête la boucle principale
-        if event.type == pygame.KEYDOWN:  # Si une touche est pressée
-            if event.key == pygame.K_SPACE and game_state == "playing":  # Touche ESPACE pendant le jeu
-                player.jump()          # Fait sauter le joueur
-            if event.key == pygame.K_r:  # Touche R (reset)
-                # Reset du jeu avec R
-                player = Player()      # Recrée un nouveau joueur
-                current_level = 1      # Remet le niveau à 1
-                platforms, coins, doors, enemies = load_level(current_level)  # Recharge le niveau 1
-                game_state = "playing" # Remet l'état du jeu à "playing"
-            if event.key == pygame.K_RETURN and (game_state == "game_over" or game_state == "victory"):  # Touche ENTREE en fin de jeu
-                # Recommencer le jeu
-                player = Player()      # Recrée un nouveau joueur
-                current_level = 1      # Remet le niveau à 1
-                platforms, coins, doors, enemies = load_level(current_level)  # Recharge le niveau 1
-                game_state = "playing" # Remet l'état du jeu à "playing"
+# Afficher le menu au démarrage
+show_menu()
+game_state = "playing"
 
-    if game_state == "playing":  # Si le jeu est en cours
-        # Mouvement du joueur
-        keys = pygame.key.get_pressed()  # Récupère l'état de toutes les touches
-        if keys[pygame.K_LEFT]:          # Si la flèche gauche est enfoncée
-            player.x -= player.speed     # Déplace le joueur vers la gauche
-            player.facing_right = False  # Met à jour la direction
-        if keys[pygame.K_RIGHT]:         # Si la flèche droite est enfoncée
-            player.x += player.speed     # Déplace le joueur vers la droite
-            player.facing_right = True   # Met à jour la direction
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE and game_state == "playing":
+                player.jump()
+            if event.key == pygame.K_r and game_state == "playing":
+                player = Player()
+                current_level = 1
+                platforms, coins, doors, enemies = load_level(current_level)
+            if event.key == pygame.K_RETURN and (game_state == "game_over" or game_state == "victory"):
+                player = Player()
+                current_level = 1
+                platforms, coins, doors, enemies = load_level(current_level)
+                game_state = "playing"
+            if event.key == pygame.K_ESCAPE:
+                game_state = "menu"
+                show_menu()
+                game_state = "playing"
 
-        # Mise à jour des ennemis
-        for enemy in enemies:  # Pour chaque ennemi
-            enemy.update()     # Met à jour sa position
+    if game_state == "playing":
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT]:
+            player.x -= player.speed
+            player.facing_right = False
+        if keys[pygame.K_RIGHT]:
+            player.x += player.speed
+            player.facing_right = True
 
-        # Mise à jour du joueur
-        result = player.update(platforms, coins, doors, enemies, current_level)  # Met à jour l'état du joueur
-        if result == "game_over":  # Si le joueur a perdu toutes ses vies
-            game_state = "game_over"  # Change l'état du jeu vers "game over"
-        elif result != current_level:  # Si le joueur a atteint une porte
-            if result == 4 and current_level == 3:  # Si le joueur a complété le niveau 3
-                # Victoire après avoir complété le niveau 3
-                game_state = "victory"  # Change l'état du jeu vers "victoire"
+        for enemy in enemies:
+            enemy.update()
+
+        result = player.update(platforms, coins, doors, enemies, current_level)
+        if result == "game_over":
+            game_state = "game_over"
+        elif result != current_level:
+            if result == 4 and current_level == 3:
+                game_state = "victory"
             else:
-                current_level = result  # Passe au niveau suivant
-                platforms, coins, doors, enemies = load_level(current_level)  # Charge les éléments du nouveau niveau
-                # Réinitialiser la position du joueur mais garder le score et les vies
-                player.x = 100           # Réinitialise la position horizontale
-                player.y = HEIGHT - 150  # Réinitialise la position verticale
-                player.vel_y = 0         # Réinitialise la vitesse verticale
-                player.is_jumping = False # Réinitialise l'état de saut
+                current_level = result
+                platforms, coins, doors, enemies = load_level(current_level)
+                player.x = 100
+                player.y = HEIGHT - 150
+                player.vel_y = 0
+                player.is_jumping = False
 
-    # Dessin - Phase de rendu graphique
-    screen.fill(SKY_BLUE)  # Remplit l'écran avec la couleur de fond
+    # Dessin
+    screen.fill(SKY_BLUE)
     
-    # Dessiner les nuages
-    for cloud in clouds:  # Pour chaque position de nuage
-        pygame.draw.circle(screen, WHITE, (cloud[0], cloud[1]), 30)        # Partie principale du nuage
-        pygame.draw.circle(screen, WHITE, (cloud[0] + 20, cloud[1] - 10), 25)  # Partie supérieure
-        pygame.draw.circle(screen, WHITE, (cloud[0] + 40, cloud[1]), 30)       # Partie droite
+    # Dessiner l'arrière-plan
+    screen.blit(background, (0, 0))
     
-    # Dessiner les plateformes, pièces et portes
-    for platform in platforms:  # Pour chaque plateforme
-        platform.draw()         # Dessine la plateforme
-    
-    for coin in coins:          # Pour chaque pièce
-        coin.draw()             # Dessine la pièce
-    
-    for door in doors:          # Pour chaque porte
-        door.draw()             # Dessine la porte
-    
-    # Dessiner les ennemis
-    for enemy in enemies:       # Pour chaque ennemi
-        enemy.draw()            # Dessine l'ennemi
-    
-    player.draw()               # Dessine le joueur
-
-    # Afficher le score, le niveau et les vies
-    score_text = font.render(f"Score: {player.score}", True, WHITE)  # Crée le texte du score
-    level_text = font.render(f"Niveau: {current_level}", True, WHITE)  # Crée le texte du niveau
-    coins_text = font.render(f"Pièces: {player.coins_collected}", True, WHITE)  # Crée le texte des pièces
-    lives_text = font.render(f"Vies: {player.lives}", True, WHITE)  # Crée le texte des vies
-    
-    screen.blit(score_text, (10, 10))    # Affiche le score en haut à gauche
-    screen.blit(level_text, (10, 50))    # Affiche le niveau en dessous
-    screen.blit(coins_text, (10, 90))    # Affiche les pièces en dessous
-    screen.blit(lives_text, (10, 130))   # Affiche les vies en dessous
-
-    # Afficher les instructions
-    instructions = font.render("Flèches: Bouger - Espace: Sauter - R: Reset", True, WHITE)  # Instructions
-    screen.blit(instructions, (WIDTH//2 - instructions.get_width()//2, HEIGHT - 40))  # Centré en bas
-
-    # Afficher l'écran de game over
-    if game_state == "game_over":  # Si le jeu est en état "game over"
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)  # Crée une surface semi-transparente
-        overlay.fill((0, 0, 0, 180))  # Remplit en noir semi-transparent
-        screen.blit(overlay, (0, 0))  # Affiche l'overlay sur tout l'écran
+    # Dessiner les nuages avec effet de parallaxe
+    for cloud in clouds:
+        cloud_x, cloud_y, layer = cloud
+        offset = pygame.time.get_ticks() / (100 * layer) % WIDTH
+        cloud_x = (cloud_x - offset) % WIDTH
         
-        game_over_text = big_font.render("GAME OVER", True, RED)  # Texte "GAME OVER" en rouge
-        restart_text = font.render("Appuyez sur ENTER pour recommencer", True, WHITE)  # Instructions de redémarrage
-        
-        screen.blit(game_over_text, (WIDTH//2 - game_over_text.get_width()//2, HEIGHT//2 - 50))  # Centré verticalement
-        screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, HEIGHT//2 + 20))  # En dessous
+        size = 20 + layer * 10
+        pygame.draw.circle(screen, WHITE, (int(cloud_x), cloud_y), size)
+        pygame.draw.circle(screen, WHITE, (int(cloud_x) + size//2, cloud_y - size//3), size//1.5)
+        pygame.draw.circle(screen, WHITE, (int(cloud_x) + size, cloud_y), size)
+    
+    for platform in platforms:
+        platform.draw()
+    
+    for coin in coins:
+        coin.draw()
+    
+    for door in doors:
+        door.draw()
+    
+    for enemy in enemies:
+        enemy.draw()
+    
+    player.draw()
 
-    # Afficher l'écran de victoire
-    if game_state == "victory":  # Si le jeu est en état "victoire"
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)  # Crée une surface semi-transparente
-        overlay.fill((0, 0, 0, 180))  # Remplit en noir semi-transparent
-        screen.blit(overlay, (0, 0))  # Affiche l'overlay sur tout l'écran
-        
-        victory_text = big_font.render("VICTOIRE!", True, YELLOW)  # Texte "VICTOIRE!" en jaune
-        score_final_text = font.render(f"Score final: {player.score}", True, WHITE)  # Score final
-        restart_text = font.render("Appuyez sur ENTER pour recommencer", True, WHITE)  # Instructions de redémarrage
-        
-        screen.blit(victory_text, (WIDTH//2 - victory_text.get_width()//2, HEIGHT//2 - 80))  # Centré verticalement
-        screen.blit(score_final_text, (WIDTH//2 - score_final_text.get_width()//2, HEIGHT//2))  # En dessous
-        screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, HEIGHT//2 + 60))  # En dessous
+    # Afficher le HUD avec effet 3D
+    pygame.draw.rect(screen, (0, 0, 0, 128), (5, 5, 200, 140), border_radius=5)
+    pygame.draw.rect(screen, (50, 50, 50), (5, 5, 200, 140), 2, border_radius=5)
+    
+    score_text = game_font.render(f"Score: {player.score}", True, WHITE)
+    level_text = game_font.render(f"Niveau: {current_level}", True, WHITE)
+    coins_text = game_font.render(f"Pièces: {player.coins_collected}", True, WHITE)
+    lives_text = game_font.render(f"Vies: {player.lives}", True, WHITE)
+    
+    screen.blit(score_text, (15, 15))
+    screen.blit(level_text, (15, 55))
+    screen.blit(coins_text, (15, 95))
+    screen.blit(lives_text, (15, 135))
 
-    pygame.display.flip()  # Met à jour l'affichage complet
-    clock.tick(60)         # Limite le jeu à 60 images par seconde
+    instructions = small_font.render("Flèches: Bouger - Espace: Sauter - R: Reset - Échap: Menu", True, WHITE)
+    screen.blit(instructions, (WIDTH//2 - instructions.get_width()//2, HEIGHT - 30))
 
-pygame.quit()  # Quitte proprement Pygame
-sys.exit()     # Termine le programme
+    if game_state == "game_over":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        screen.blit(overlay, (0, 0))
+        
+        game_over_shadow = big_font.render("GAME OVER", True, (0, 0, 0))
+        game_over_text = big_font.render("GAME OVER", True, RED)
+        screen.blit(game_over_shadow, (WIDTH//2 - game_over_shadow.get_width()//2 + 3, HEIGHT//2 - 50 + 3))
+        screen.blit(game_over_text, (WIDTH//2 - game_over_text.get_width()//2, HEIGHT//2 - 50))
+        
+        restart_text = game_font.render("Appuyez sur ENTER pour recommencer", True, WHITE)
+        screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, HEIGHT//2 + 20))
+
+    if game_state == "victory":
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        screen.blit(overlay, (0, 0))
+        
+        victory_shadow = big_font.render("VICTOIRE!", True, (0, 0, 0))
+        victory_text = big_font.render("VICTOIRE!", True, YELLOW)
+        screen.blit(victory_shadow, (WIDTH//2 - victory_shadow.get_width()//2 + 3, HEIGHT//2 - 80 + 3))
+        screen.blit(victory_text, (WIDTH//2 - victory_text.get_width()//2, HEIGHT//2 - 80))
+        
+        score_final_text = game_font.render(f"Score final: {player.score}", True, WHITE)
+        screen.blit(score_final_text, (WIDTH//2 - score_final_text.get_width()//2, HEIGHT//2))
+        
+        restart_text = game_font.render("Appuyez sur ENTER pour recommencer", True, WHITE)
+        screen.blit(restart_text, (WIDTH//2 - restart_text.get_width()//2, HEIGHT//2 + 60))
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()
